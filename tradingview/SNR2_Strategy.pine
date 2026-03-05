@@ -271,6 +271,8 @@ detectHNS()
 
 // 更新水平狀態: 是否被測試/突破
 updateLevels() =>
+    if array.size(levels) == 0
+        0
     for i = array.size(levels) - 1 to 0
         if i < array.size(levels)
             lv = array.get(levels, i)
@@ -291,6 +293,8 @@ updateLevels()
 // 清理過舊或已突破的水平
 cleanLevels() =>
     maxAge = 500
+    if array.size(levels) == 0
+        0
     for i = array.size(levels) - 1 to 0
         if i < array.size(levels)
             lv = array.get(levels, i)
@@ -510,7 +514,20 @@ if strategy.position_size == 0
 // ============================================================
 
 // 繪製水平線
+var line[]  drawnLines  = array.new<line>(0)
+var label[] drawnLabels = array.new<label>(0)
+
 if barstate.islast and array.size(levels) > 0
+    // 清除上次繪製
+    if array.size(drawnLines) > 0
+        for j = array.size(drawnLines) - 1 to 0
+            line.delete(array.get(drawnLines, j))
+    array.clear(drawnLines)
+    if array.size(drawnLabels) > 0
+        for j = array.size(drawnLabels) - 1 to 0
+            label.delete(array.get(drawnLabels, j))
+    array.clear(drawnLabels)
+
     for i = 0 to math.min(array.size(levels) - 1, maxLevels - 1)
         lv = array.get(levels, i)
         if lv.broken
@@ -533,10 +550,8 @@ if barstate.islast and array.size(levels) > 0
             lvColor := color.new(color.fuchsia, 30)
 
         if showIt
-            lvLine = line.new(lv.barIdx, lv.price, bar_index, lv.price, 
-                              color=lvColor, style=lv.side == 1 ? line.style_solid : line.style_dashed, 
-                              width=lv.hasCC ? 2 : 1)
-            line.delete(lvLine[1])
+            newLine = line.new(lv.barIdx, lv.price, bar_index, lv.price, color=lvColor, style=lv.side == 1 ? line.style_solid : line.style_dashed, width=lv.hasCC ? 2 : 1)
+            array.push(drawnLines, newLine)
 
             if showLabels
                 typeStr = lv.levelType == 1 ? "C" : lv.levelType == 2 ? "BO" : lv.levelType == 3 ? "G" : "HNS"
@@ -544,11 +559,8 @@ if barstate.islast and array.size(levels) > 0
                 eqStr   = lv.tested ? "" : " EQ"
                 ccStr   = lv.hasCC ? " CC" : ""
                 lblText = typeStr + " " + sideStr + eqStr + ccStr
-                lvLabel = label.new(bar_index, lv.price, lblText, 
-                                    color=color.new(color.black, 80), textcolor=lvColor, 
-                                    style=lv.side == 1 ? label.style_label_up : label.style_label_down, 
-                                    size=size.tiny)
-                label.delete(lvLabel[1])
+                newLbl = label.new(bar_index, lv.price, lblText, color=color.new(color.black, 80), textcolor=lvColor, style=lv.side == 1 ? label.style_label_up : label.style_label_down, size=size.tiny)
+                array.push(drawnLabels, newLbl)
 
 // 進出場標記
 plotshape(showSignals and longSignal, "Long Signal", shape.triangleup, 

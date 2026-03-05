@@ -304,6 +304,8 @@ detectHNS()
 // ============================================================
 
 updateLevels() =>
+    if array.size(levels) == 0
+        0
     for i = array.size(levels) - 1 to 0
         if i < array.size(levels)
             lv = array.get(levels, i)
@@ -364,6 +366,8 @@ classifyCC()
 // 清理水平
 cleanLevels() =>
     maxAge = 500
+    if array.size(levels) == 0
+        0
     for i = array.size(levels) - 1 to 0
         if i < array.size(levels)
             lv = array.get(levels, i)
@@ -436,11 +440,13 @@ shouldRecalcTL = bar_index % tlRecalcPeriod == 0 and showTrendlines
 
 if shouldRecalcTL and array.size(swingLowPrices) >= 3 and array.size(swingHighPrices) >= 3
     // 清除舊趨勢線
-    for i = array.size(tlLines) - 1 to 0
-        line.delete(array.get(tlLines, i))
+    if array.size(tlLines) > 0
+        for i = array.size(tlLines) - 1 to 0
+            line.delete(array.get(tlLines, i))
     array.clear(tlLines)
-    for i = array.size(tlLabels) - 1 to 0
-        label.delete(array.get(tlLabels, i))
+    if array.size(tlLabels) > 0
+        for i = array.size(tlLabels) - 1 to 0
+            label.delete(array.get(tlLabels, i))
     array.clear(tlLabels)
     array.clear(trendlines)
 
@@ -565,11 +571,13 @@ var box[] zoneBoxes = array.new<box>(0)
 var label[] zoneLabels = array.new<label>(0)
 
 if barstate.islast and showZones
-    for i = array.size(zoneBoxes) - 1 to 0
-        box.delete(array.get(zoneBoxes, i))
+    if array.size(zoneBoxes) > 0
+        for i = array.size(zoneBoxes) - 1 to 0
+            box.delete(array.get(zoneBoxes, i))
     array.clear(zoneBoxes)
-    for i = array.size(zoneLabels) - 1 to 0
-        label.delete(array.get(zoneLabels, i))
+    if array.size(zoneLabels) > 0
+        for i = array.size(zoneLabels) - 1 to 0
+            label.delete(array.get(zoneLabels, i))
     array.clear(zoneLabels)
 
     for i = 0 to array.size(levels) - 1
