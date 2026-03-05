@@ -8,8 +8,7 @@
 // ============================================================
 
 //@version=6
-indicator("SNR 2.0 視覺輔助工具", overlay=true, max_lines_count=500,
-         max_boxes_count=500, max_labels_count=500, max_bars_back=5000)
+indicator("SNR 2.0 視覺輔助工具", overlay=true, max_lines_count=500, max_boxes_count=500, max_labels_count=500, max_bars_back=5000)
 
 // ============================================================
 // 輸入參數 (與主策略對齊)
@@ -213,24 +212,25 @@ detectBreakout() =>
 detectGap() =>
     localATR = atrVal
     minGapSize = localATR * gapMinRatio
-    sameColor = (isBull == isBull[1])
-    if sameColor
-        if isBull
-            gapSize = open - close[1]
-            if gapSize >= minGapSize
-                gapPrice = (close[1] + open) / 2
-                zt = math.max(close[1], open)
-                zb = math.min(close[1], open)
-                lv = LevelInfo.new(gapPrice, 3, 1, bar_index, 0.6, false, false, false, 0, 0, 0, zt, zb)
-                array.push(levels, lv)
-        else
-            gapSize = close[1] - open
-            if gapSize >= minGapSize
-                gapPrice = (close[1] + open) / 2
-                zt = math.max(close[1], open)
-                zb = math.min(close[1], open)
-                lv = LevelInfo.new(gapPrice, 3, -1, bar_index, 0.6, false, false, false, 0, 0, 0, zt, zb)
-                array.push(levels, lv)
+    if bar_index > 0
+        sameColor = (isBull == isBull[1])
+        if sameColor
+            if isBull
+                gapSize = open - close[1]
+                if gapSize >= minGapSize
+                    gapPrice = (close[1] + open) / 2
+                    zt = math.max(close[1], open)
+                    zb = math.min(close[1], open)
+                    lv = LevelInfo.new(gapPrice, 3, 1, bar_index, 0.6, false, false, false, 0, 0, 0, zt, zb)
+                    array.push(levels, lv)
+            else
+                gapSize = close[1] - open
+                if gapSize >= minGapSize
+                    gapPrice = (close[1] + open) / 2
+                    zt = math.max(close[1], open)
+                    zb = math.min(close[1], open)
+                    lv = LevelInfo.new(gapPrice, 3, -1, bar_index, 0.6, false, false, false, 0, 0, 0, zt, zb)
+                    array.push(levels, lv)
 
 // --- HNS 水平 ---
 detectHNS() =>
@@ -303,83 +303,70 @@ detectHNS()
 // 水平管理 + EQ測試計數 + CC分類
 // ============================================================
 
-updateLevels() =>
-    if array.size(levels) == 0
-        0
+// 更新水平狀態
+if array.size(levels) > 0
     for i = array.size(levels) - 1 to 0
-        if i < array.size(levels)
-            lv = array.get(levels, i)
-            dist = math.abs(close - lv.price)
-            if lv.side == 1
-                if close < lv.price - atrVal * 0.5
-                    lv.broken := true
-            else
-                if close > lv.price + atrVal * 0.5
-                    lv.broken := true
-            if dist < atrVal * eqFreshRatio
-                if not lv.tested
-                    lv.tested := true
-                lv.testCount += 1
-
-updateLevels()
+        lv = array.get(levels, i)
+        dist = math.abs(close - lv.price)
+        if lv.side == 1
+            if close < lv.price - atrVal * 0.5
+                lv.broken := true
+        else
+            if close > lv.price + atrVal * 0.5
+                lv.broken := true
+        if dist < atrVal * eqFreshRatio
+            if not lv.tested
+                lv.tested := true
+            lv.testCount += 1
 
 // CC 分類偵測 (4種CC類型)
-classifyCC() =>
-    if useCC
-        proximity = atrVal * ccProximityRatio
-        minBody   = atrVal * ccMinBodyRatio
-        for i = 0 to array.size(levels) - 1
-            if i < array.size(levels)
-                lv = array.get(levels, i)
-                if lv.broken
-                    continue
-                for k = 1 to ccLookback
-                    if k < bar_index
-                        ccBody = math.abs(close[k] - open[k])
-                        ccBull = close[k] > open[k]
-                        ccHighK = high[k]
-                        ccLowK  = low[k]
-                        dist = 0.0
-                        validDir = false
-                        if lv.side == 1
-                            dist := math.abs(ccLowK - lv.price)
-                            validDir := ccBull
+if useCC and array.size(levels) > 0
+    proximity = atrVal * ccProximityRatio
+    minBody   = atrVal * ccMinBodyRatio
+    for i = 0 to array.size(levels) - 1
+        lv = array.get(levels, i)
+        if lv.broken
+            continue
+        for k = 1 to ccLookback
+            if k < bar_index
+                ccBody = math.abs(close[k] - open[k])
+                ccBull = close[k] > open[k]
+                ccHighK = high[k]
+                ccLowK  = low[k]
+                dist = 0.0
+                validDir = false
+                if lv.side == 1
+                    dist := math.abs(ccLowK - lv.price)
+                    validDir := ccBull
+                else
+                    dist := math.abs(ccHighK - lv.price)
+                    validDir := not ccBull
+                if dist <= proximity and validDir and ccBody >= minBody
+                    lv.hasCC := true
+                    lv.ccBar := bar_index - k
+                    if lv.levelType == 4
+                        lv.ccType := 4
+                    else if lv.levelType == 2
+                        if bar_index - k < lv.barIdx
+                            lv.ccType := 2
                         else
-                            dist := math.abs(ccHighK - lv.price)
-                            validDir := not ccBull
-                        if dist <= proximity and validDir and ccBody >= minBody
-                            lv.hasCC := true
-                            lv.ccBar := bar_index - k
-                            if lv.levelType == 4
-                                lv.ccType := 4
-                            else if lv.levelType == 2
-                                if bar_index - k < lv.barIdx
-                                    lv.ccType := 2
-                                else
-                                    lv.ccType := 3
-                            else
-                                lv.ccType := 1
-                            break
-
-classifyCC()
+                            lv.ccType := 3
+                    else
+                        lv.ccType := 1
+                    break
 
 // 清理水平
-cleanLevels() =>
-    maxAge = 500
-    if array.size(levels) == 0
-        0
+if array.size(levels) > 0
     for i = array.size(levels) - 1 to 0
-        if i < array.size(levels)
-            lv = array.get(levels, i)
-            age = bar_index - lv.barIdx
-            if lv.broken and not showBrokenZones
-                array.remove(levels, i)
-            else if age > maxAge
-                array.remove(levels, i)
-    while array.size(levels) > maxLevels
-        array.shift(levels)
+        lv = array.get(levels, i)
+        age = bar_index - lv.barIdx
+        if lv.broken and not showBrokenZones
+            array.remove(levels, i)
+        else if age > 500
+            array.remove(levels, i)
 
-cleanLevels()
+while array.size(levels) > maxLevels
+    array.shift(levels)
 
 isLevelFresh(LevelInfo lv) =>
     result = true
@@ -535,16 +522,13 @@ if shouldRecalcTL and array.size(swingLowPrices) >= 3 and array.size(swingHighPr
             tlColor = tl.direction == 1 ? color.new(#00e676, 30) : color.new(#ff5252, 30)
             tlStyle = tl.tlType == 1 ? line.style_solid : line.style_dashed
             tlWidth = tl.touches >= 3 ? 2 : 1
-            newLine = line.new(tl.startBar, tl.startPrice, extendedBar, extendedPrice,
-                              color=tlColor, style=tlStyle, width=tlWidth)
+            newLine = line.new(tl.startBar, tl.startPrice, extendedBar, extendedPrice, color=tlColor, style=tlStyle, width=tlWidth)
             array.push(tlLines, newLine)
             typeStr = tl.tlType == 1 ? "TL-111" : "TL-11b2"
             touchStr = " (" + str.tostring(tl.touches) + "T)"
             midBar = math.round((tl.startBar + tl.endBar) / 2)
             midPrice = tl.startPrice + tl.slope * (midBar - tl.startBar)
-            newLabel = label.new(midBar, midPrice, typeStr + touchStr,
-                                color=color.new(color.black, 80), textcolor=tlColor,
-                                style=label.style_label_center, size=size.tiny)
+            newLabel = label.new(midBar, midPrice, typeStr + touchStr, color=color.new(color.black, 80), textcolor=tlColor, style=label.style_label_center, size=size.tiny)
             array.push(tlLabels, newLabel)
 
 // 趨勢線突破偵測
@@ -580,8 +564,8 @@ if barstate.islast and showZones
             label.delete(array.get(zoneLabels, i))
     array.clear(zoneLabels)
 
-    for i = 0 to array.size(levels) - 1
-        if i < array.size(levels)
+    if array.size(levels) > 0
+        for i = 0 to array.size(levels) - 1
             lv = array.get(levels, i)
             if lv.broken and not showBrokenZones
                 continue
@@ -592,18 +576,14 @@ if barstate.islast and showZones
             fillColor = color.new(baseColor, transp)
             borderColor = color.new(baseColor, lv.tested ? 60 : 30)
             borderStyle = lv.tested ? line.style_dashed : line.style_solid
-            newBox = box.new(lv.barIdx, lv.zoneTop, bar_index + 20, lv.zoneBot,
-                            border_color=borderColor, border_width=1,
-                            border_style=borderStyle, bgcolor=fillColor)
+            newBox = box.new(lv.barIdx, lv.zoneTop, bar_index + 20, lv.zoneBot, border_color=borderColor, border_width=1, border_style=borderStyle, bgcolor=fillColor)
             array.push(zoneBoxes, newBox)
             typeStr = lv.levelType == 1 ? "Classic" : lv.levelType == 2 ? "Breakout" : lv.levelType == 3 ? "Gap" : "HNS"
             sideStr = lv.side == 1 ? "S" : "R"
             freshStr = lv.tested ? (str.tostring(lv.testCount) + "x") : "EQ"
             ccStr = lv.hasCC ? (lv.ccType == 1 ? " CC" : lv.ccType == 2 ? " BO1" : lv.ccType == 3 ? " BO2" : lv.ccType == 4 ? " HCC" : "") : ""
             lblText = typeStr + " " + sideStr + " [" + freshStr + "]" + ccStr
-            newLbl = label.new(bar_index + 21, lv.price, lblText,
-                              color=color.new(color.black, 100), textcolor=color.new(baseColor, lv.tested ? 50 : 0),
-                              style=label.style_label_left, size=size.tiny)
+            newLbl = label.new(bar_index + 21, lv.price, lblText, color=color.new(color.black, 100), textcolor=color.new(baseColor, lv.tested ? 50 : 0), style=label.style_label_left, size=size.tiny)
             array.push(zoneLabels, newLbl)
 
 // ============================================================
@@ -621,9 +601,7 @@ if showCCHighlight and array.size(levels) > 0
                     ccTypeStr = lv.ccType == 1 ? "CC" : lv.ccType == 2 ? "BOCC1" : lv.ccType == 3 ? "BOCC2" : lv.ccType == 4 ? "HNS-CC" : "CC"
                     ccLblStyle = lv.side == 1 ? label.style_label_up : label.style_label_down
                     ccLblY = lv.side == 1 ? low : high
-                    label.new(bar_index, ccLblY, ccTypeStr + "\n@" + str.tostring(lv.price, "#.##"),
-                             color=color.new(color.black, 70), textcolor=color.new(#64b5f6, 0),
-                             style=ccLblStyle, size=size.tiny)
+                    label.new(bar_index, ccLblY, ccTypeStr + "\n@" + str.tostring(lv.price, "#.##"), color=color.new(color.black, 70), textcolor=color.new(#64b5f6, 0), style=ccLblStyle, size=size.tiny)
 
 bgcolor(ccBgColor, title="CC K線高亮")
 
@@ -742,9 +720,7 @@ if showDetailedLabels and (longSignal or shortSignal)
     lblStyle = longSignal ? label.style_label_up : label.style_label_down
     lblY = longSignal ? low - atrVal * 0.3 : high + atrVal * 0.3
 
-    label.new(bar_index, lblY, line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5,
-             color=lblColor, textcolor=color.white,
-             style=lblStyle, size=size.small)
+    label.new(bar_index, lblY, line1 + "\n" + line2 + "\n" + line3 + "\n" + line4 + "\n" + line5, color=lblColor, textcolor=color.white, style=lblStyle, size=size.small)
 
 // --- R/R 區域 Box ---
 if showRRZones and (longSignal or shortSignal)
@@ -752,68 +728,38 @@ if showRRZones and (longSignal or shortSignal)
     rewardColor = color.new(#00c853, 85)
 
     if longSignal
-        box.new(bar_index, signalPrice, bar_index + 15, signalSL,
-               border_color=color.new(#ff1744, 50), bgcolor=riskColor, border_width=1)
-        box.new(bar_index, signalTP, bar_index + 15, signalPrice,
-               border_color=color.new(#00c853, 50), bgcolor=rewardColor, border_width=1)
+        box.new(bar_index, signalPrice, bar_index + 15, signalSL, border_color=color.new(#ff1744, 50), bgcolor=riskColor, border_width=1)
+        box.new(bar_index, signalTP, bar_index + 15, signalPrice, border_color=color.new(#00c853, 50), bgcolor=rewardColor, border_width=1)
         risk = signalPrice - signalSL
         if maxTargetR >= 2
             tp2 = signalPrice + risk * 2
-            line.new(bar_index, tp2, bar_index + 15, tp2,
-                    color=color.new(#2196f3, 40), style=line.style_dotted, width=1)
-            label.new(bar_index + 15, tp2, "+2R",
-                     color=color.new(color.black, 100), textcolor=color.new(#2196f3, 0),
-                     style=label.style_label_left, size=size.tiny)
+            line.new(bar_index, tp2, bar_index + 15, tp2, color=color.new(#2196f3, 40), style=line.style_dotted, width=1)
+            label.new(bar_index + 15, tp2, "+2R", color=color.new(color.black, 100), textcolor=color.new(#2196f3, 0), style=label.style_label_left, size=size.tiny)
         if maxTargetR >= 3
             tp3 = signalPrice + risk * 3
-            line.new(bar_index, tp3, bar_index + 15, tp3,
-                    color=color.new(#9c27b0, 40), style=line.style_dotted, width=1)
-            label.new(bar_index + 15, tp3, "+3R",
-                     color=color.new(color.black, 100), textcolor=color.new(#9c27b0, 0),
-                     style=label.style_label_left, size=size.tiny)
-        label.new(bar_index + 15, signalSL, "-1R",
-                 color=color.new(color.black, 100), textcolor=color.new(#ff1744, 0),
-                 style=label.style_label_left, size=size.tiny)
-        label.new(bar_index + 15, signalTP, "+1R",
-                 color=color.new(color.black, 100), textcolor=color.new(#00c853, 0),
-                 style=label.style_label_left, size=size.tiny)
-        line.new(bar_index, signalPrice, bar_index + 15, signalPrice,
-                color=color.new(color.white, 40), style=line.style_solid, width=1)
-        label.new(bar_index + 15, signalPrice, "Entry",
-                 color=color.new(color.black, 100), textcolor=color.white,
-                 style=label.style_label_left, size=size.tiny)
+            line.new(bar_index, tp3, bar_index + 15, tp3, color=color.new(#9c27b0, 40), style=line.style_dotted, width=1)
+            label.new(bar_index + 15, tp3, "+3R", color=color.new(color.black, 100), textcolor=color.new(#9c27b0, 0), style=label.style_label_left, size=size.tiny)
+        label.new(bar_index + 15, signalSL, "-1R", color=color.new(color.black, 100), textcolor=color.new(#ff1744, 0), style=label.style_label_left, size=size.tiny)
+        label.new(bar_index + 15, signalTP, "+1R", color=color.new(color.black, 100), textcolor=color.new(#00c853, 0), style=label.style_label_left, size=size.tiny)
+        line.new(bar_index, signalPrice, bar_index + 15, signalPrice, color=color.new(color.white, 40), style=line.style_solid, width=1)
+        label.new(bar_index + 15, signalPrice, "Entry", color=color.new(color.black, 100), textcolor=color.white, style=label.style_label_left, size=size.tiny)
 
     if shortSignal
-        box.new(bar_index, signalSL, bar_index + 15, signalPrice,
-               border_color=color.new(#ff1744, 50), bgcolor=riskColor, border_width=1)
-        box.new(bar_index, signalPrice, bar_index + 15, signalTP,
-               border_color=color.new(#00c853, 50), bgcolor=rewardColor, border_width=1)
+        box.new(bar_index, signalSL, bar_index + 15, signalPrice, border_color=color.new(#ff1744, 50), bgcolor=riskColor, border_width=1)
+        box.new(bar_index, signalPrice, bar_index + 15, signalTP, border_color=color.new(#00c853, 50), bgcolor=rewardColor, border_width=1)
         risk = signalSL - signalPrice
         if maxTargetR >= 2
             tp2 = signalPrice - risk * 2
-            line.new(bar_index, tp2, bar_index + 15, tp2,
-                    color=color.new(#2196f3, 40), style=line.style_dotted, width=1)
-            label.new(bar_index + 15, tp2, "+2R",
-                     color=color.new(color.black, 100), textcolor=color.new(#2196f3, 0),
-                     style=label.style_label_left, size=size.tiny)
+            line.new(bar_index, tp2, bar_index + 15, tp2, color=color.new(#2196f3, 40), style=line.style_dotted, width=1)
+            label.new(bar_index + 15, tp2, "+2R", color=color.new(color.black, 100), textcolor=color.new(#2196f3, 0), style=label.style_label_left, size=size.tiny)
         if maxTargetR >= 3
             tp3 = signalPrice - risk * 3
-            line.new(bar_index, tp3, bar_index + 15, tp3,
-                    color=color.new(#9c27b0, 40), style=line.style_dotted, width=1)
-            label.new(bar_index + 15, tp3, "+3R",
-                     color=color.new(color.black, 100), textcolor=color.new(#9c27b0, 0),
-                     style=label.style_label_left, size=size.tiny)
-        label.new(bar_index + 15, signalSL, "-1R",
-                 color=color.new(color.black, 100), textcolor=color.new(#ff1744, 0),
-                 style=label.style_label_left, size=size.tiny)
-        label.new(bar_index + 15, signalTP, "+1R",
-                 color=color.new(color.black, 100), textcolor=color.new(#00c853, 0),
-                 style=label.style_label_left, size=size.tiny)
-        line.new(bar_index, signalPrice, bar_index + 15, signalPrice,
-                color=color.new(color.white, 40), style=line.style_solid, width=1)
-        label.new(bar_index + 15, signalPrice, "Entry",
-                 color=color.new(color.black, 100), textcolor=color.white,
-                 style=label.style_label_left, size=size.tiny)
+            line.new(bar_index, tp3, bar_index + 15, tp3, color=color.new(#9c27b0, 40), style=line.style_dotted, width=1)
+            label.new(bar_index + 15, tp3, "+3R", color=color.new(color.black, 100), textcolor=color.new(#9c27b0, 0), style=label.style_label_left, size=size.tiny)
+        label.new(bar_index + 15, signalSL, "-1R", color=color.new(color.black, 100), textcolor=color.new(#ff1744, 0), style=label.style_label_left, size=size.tiny)
+        label.new(bar_index + 15, signalTP, "+1R", color=color.new(color.black, 100), textcolor=color.new(#00c853, 0), style=label.style_label_left, size=size.tiny)
+        line.new(bar_index, signalPrice, bar_index + 15, signalPrice, color=color.new(color.white, 40), style=line.style_solid, width=1)
+        label.new(bar_index + 15, signalPrice, "Entry", color=color.new(color.black, 100), textcolor=color.white, style=label.style_label_left, size=size.tiny)
 
 // ============================================================
 // 警報引擎
@@ -879,9 +825,7 @@ if anySignal and enableAlerts
 // ============================================================
 
 // --- Setup/DE 組合速查表 (bottom_left) ---
-var table cheatPanel = table.new(position.bottom_left, 4, 8,
-                                  bgcolor=color.new(#0d1117, 5),
-                                  border_color=color.new(color.gray, 60), border_width=1)
+var table cheatPanel = table.new(position.bottom_left, 4, 8, bgcolor=color.new(#0d1117, 5), border_color=color.new(color.gray, 60), border_width=1)
 
 if barstate.islast and showCheatSheet
     table.cell(cheatPanel, 0, 0, "Setup/DE", text_color=color.white, text_size=size.tiny)
@@ -924,9 +868,7 @@ if barstate.islast and showCheatSheet
     table.cell(cheatPanel, 3, 7, "", text_color=color.gray, text_size=size.tiny)
 
 // --- 情境檢查清單 (bottom_right) ---
-var table checkPanel = table.new(position.bottom_right, 2, 7,
-                                  bgcolor=color.new(#0d1117, 5),
-                                  border_color=color.new(color.gray, 60), border_width=1)
+var table checkPanel = table.new(position.bottom_right, 2, 7, bgcolor=color.new(#0d1117, 5), border_color=color.new(color.gray, 60), border_width=1)
 
 if barstate.islast and showChecklist
     table.cell(checkPanel, 0, 0, "Checklist", text_color=color.white, text_size=size.tiny)
