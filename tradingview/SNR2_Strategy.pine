@@ -1,0 +1,608 @@
+// ============================================================
+// SNR 2.0 交易策略 - TradingView Pine Script v6
+// ============================================================
+// 基於林俊宏 SNR 2020 / SR 2.0 支撐阻力交易系統
+// 功能: 四大水平偵測 + EQ/CC 過濾 + DC/DE 進場 + 風險管理
+// 適用: 加密貨幣、外匯、指數 (任何時間框架)
+// ============================================================
+
+//@version=6
+strategy("SNR 2.0 策略系統", overlay=true, default_qty_type=strategy.percent_of_equity, 
+         default_qty_value=100, initial_capital=10000, commission_type=strategy.commission.percent, 
+         commission_value=0.1, slippage=2, pyramiding=0)
+
+// ============================================================
+// 📌 輸入參數
+// ============================================================
+
+// --- 水平偵測 ---
+grp_levels = "═══ 水平偵測參數 ═══"
+swingLookback   = input.int(5, "Swing 回看窗口", minval=2, maxval=20, group=grp_levels)
+classicGapRatio  = input.float(0.3, "Classic Gap/ATR 比例", step=0.05, group=grp_levels)
+boBodyRatio      = input.float(1.0, "Breakout 實體/ATR 比例", step=0.1, group=grp_levels)
+boCleanBars      = input.int(2, "Breakout 乾淨根數", minval=1, maxval=5, group=grp_levels)
+gapMinRatio      = input.float(0.2, "Gap 最小/ATR 比例", step=0.05, group=grp_levels)
+hnsShoulderRatio = input.float(0.3, "HNS 肩頭比例", step=0.05, group=grp_levels)
+hnsTolerance     = input.float(0.5, "HNS 頸線容忍/ATR", step=0.1, group=grp_levels)
+mergeRatio       = input.float(0.3, "水平合併距離/ATR", step=0.05, group=grp_levels)
+maxLevels        = input.int(20, "最大水平數量", minval=5, maxval=50, group=grp_levels)
+
+// --- EQ / CC ---
+grp_filter = "═══ EQ & CC 過濾 ═══"
+useEQ            = input.bool(true, "啟用 EQ 過濾 (新鮮水平)", group=grp_filter)
+eqFreshRatio     = input.float(0.1, "EQ 新鮮容忍/ATR", step=0.05, group=grp_filter)
+useCC            = input.bool(true, "啟用 CC 過濾 (確認K線)", group=grp_filter)
+ccProximityRatio = input.float(0.5, "CC 接近水平/ATR", step=0.1, group=grp_filter)
+ccMinBodyRatio   = input.float(0.3, "CC 最小實體/ATR", step=0.05, group=grp_filter)
+ccLookback       = input.int(10, "CC 回看根數", minval=3, maxval=20, group=grp_filter)
+
+// --- 進場策略 ---
+grp_entry = "═══ 進場策略 ═══"
+entryMode = input.string("DC", "進場模式", options=["DC", "DE", "Both"], group=grp_entry)
+
+// --- 多時間框架 ---
+grp_mtf = "═══ 多時間框架 ═══"
+useMTF       = input.bool(true, "啟用 MTF 方向過濾", group=grp_mtf)
+htf          = input.timeframe("240", "高階 TF (方向判斷)", group=grp_mtf)
+mtfPeriod    = input.int(20, "MTF 趨勢計算週期", minval=5, group=grp_mtf)
+
+// --- 風險管理 ---
+grp_risk = "═══ 風險管理 ═══"
+riskPct        = input.float(1.0, "每筆風險 (%)", step=0.5, group=grp_risk)
+defaultTargetR = input.float(1.0, "預設目標 R", step=0.5, group=grp_risk)
+maxTargetR     = input.float(3.0, "最大目標 R", step=0.5, group=grp_risk)
+beMinRR        = input.float(2.0, "保本移動最低 RR", step=0.5, group=grp_risk)
+slBufferRatio  = input.float(0.1, "止損 Buffer/ATR", step=0.05, group=grp_risk)
+
+// --- 視覺化 ---
+grp_vis = "═══ 視覺化 ═══"
+showClassic  = input.bool(true, "顯示 Classic 水平", group=grp_vis)
+showBreakout = input.bool(true, "顯示 Breakout 水平", group=grp_vis)
+showGap      = input.bool(true, "顯示 Gap 水平", group=grp_vis)
+showHNS      = input.bool(true, "顯示 HNS 水平", group=grp_vis)
+showLabels   = input.bool(true, "顯示水平標籤", group=grp_vis)
+showSignals  = input.bool(true, "顯示進出場標記", group=grp_vis)
+
+// ============================================================
+// 📐 基礎計算
+// ============================================================
+
+atrLen   = 14
+atrVal   = ta.atr(atrLen)
+bodySize = math.abs(close - open)
+bodyTop  = math.max(open, close)
+bodyBot  = math.min(open, close)
+isBull   = close > open
+isBear   = close < open
+
+// ============================================================
+// 1️⃣ SWING HIGH / LOW 偵測
+// ============================================================
+
+isSwingHigh = ta.pivothigh(high, swingLookback, swingLookback)
+isSwingLow  = ta.pivotlow(low, swingLookback, swingLookback)
+
+// 記錄最近的 swing 價格
+var float[] swingHighPrices = array.new_float(0)
+var int[]   swingHighBars   = array.new_int(0)
+var float[] swingLowPrices  = array.new_float(0)
+var int[]   swingLowBars    = array.new_int(0)
+
+if not na(isSwingHigh)
+    array.push(swingHighPrices, isSwingHigh)
+    array.push(swingHighBars, bar_index - swingLookback)
+    if array.size(swingHighPrices) > 50
+        array.shift(swingHighPrices)
+        array.shift(swingHighBars)
+
+if not na(isSwingLow)
+    array.push(swingLowPrices, isSwingLow)
+    array.push(swingLowBars, bar_index - swingLookback)
+    if array.size(swingLowPrices) > 50
+        array.shift(swingLowPrices)
+        array.shift(swingLowBars)
+
+// ============================================================
+// 2️⃣ 水平偵測引擎
+// ============================================================
+// 用 type 定義水平結構
+type LevelInfo
+    float   price
+    int     levelType    // 1=Classic, 2=Breakout, 3=Gap, 4=HNS
+    int     side         // 1=Support, -1=Resistance
+    int     barIdx
+    float   strength
+    bool    tested
+    bool    broken
+    bool    hasCC
+
+// 全域水平陣列
+var LevelInfo[] levels = array.new<LevelInfo>(0)
+
+// --- Classic 水平 ---
+detectClassic() =>
+    if not na(isSwingHigh)
+        swPrice = isSwingHigh
+        swBar   = bar_index - swingLookback
+        minGap  = atrVal * classicGapRatio
+        // 檢查後續是否有 gap/miss 回彈
+        hasReaction = false
+        for j = 1 to swingLookback * 2
+            idx = swBar + j
+            if idx <= bar_index and idx >= 0
+                if high[bar_index - idx] >= swPrice - minGap and high[bar_index - idx] < swPrice
+                    hasReaction := true
+                    break
+        if hasReaction
+            lv = LevelInfo.new(swPrice, 1, -1, swBar, 0.7, false, false, false)
+            array.push(levels, lv)
+
+    if not na(isSwingLow)
+        swPrice = isSwingLow
+        swBar   = bar_index - swingLookback
+        minGap  = atrVal * classicGapRatio
+        hasReaction = false
+        for j = 1 to swingLookback * 2
+            idx = swBar + j
+            if idx <= bar_index and idx >= 0
+                if low[bar_index - idx] <= swPrice + minGap and low[bar_index - idx] > swPrice
+                    hasReaction := true
+                    break
+        if hasReaction
+            lv = LevelInfo.new(swPrice, 1, 1, swBar, 0.7, false, false, false)
+            array.push(levels, lv)
+
+// --- Breakout 水平 ---
+detectBreakout() =>
+    localATR = atrVal
+    body = bodySize
+    if body >= localATR * boBodyRatio
+        if isBull
+            boPrice = bodyBot
+            preClean = true
+            for k = 1 to boCleanBars
+                if high[k] >= boPrice + localATR * 0.2
+                    preClean := false
+                    break
+            if preClean
+                lv = LevelInfo.new(boPrice, 2, 1, bar_index, 0.8, false, false, false)
+                array.push(levels, lv)
+        else if isBear
+            boPrice = bodyTop
+            preClean = true
+            for k = 1 to boCleanBars
+                if low[k] <= boPrice - localATR * 0.2
+                    preClean := false
+                    break
+            if preClean
+                lv = LevelInfo.new(boPrice, 2, -1, bar_index, 0.8, false, false, false)
+                array.push(levels, lv)
+
+// --- Gap 水平 ---
+detectGap() =>
+    localATR = atrVal
+    minGapSize = localATR * gapMinRatio
+    sameColor = (isBull == isBull[1])
+    if sameColor
+        if isBull
+            gapSize = open - close[1]
+            if gapSize >= minGapSize
+                gapPrice = (close[1] + open) / 2
+                lv = LevelInfo.new(gapPrice, 3, 1, bar_index, 0.6, false, false, false)
+                array.push(levels, lv)
+        else
+            gapSize = close[1] - open
+            if gapSize >= minGapSize
+                gapPrice = (close[1] + open) / 2
+                lv = LevelInfo.new(gapPrice, 3, -1, bar_index, 0.6, false, false, false)
+                array.push(levels, lv)
+
+// --- HNS 水平 ---
+detectHNS() =>
+    localATR = atrVal
+    // HNS Top (看跌)
+    if array.size(swingHighPrices) >= 3
+        sz = array.size(swingHighPrices)
+        leftH  = array.get(swingHighPrices, sz - 3)
+        headH  = array.get(swingHighPrices, sz - 2)
+        rightH = array.get(swingHighPrices, sz - 1)
+        leftBar  = array.get(swingHighBars, sz - 3)
+        headBar  = array.get(swingHighBars, sz - 2)
+        rightBar = array.get(swingHighBars, sz - 1)
+
+        if headH > leftH and headH > rightH
+            shoulderDiff = math.abs(leftH - rightH)
+            minShoulder  = math.min(leftH, rightH)
+            if shoulderDiff < localATR * (1 - hnsShoulderRatio) and (headH - minShoulder) >= localATR * hnsShoulderRatio
+                // 找頸線: 左肩~頭之間最低 & 頭~右肩之間最低
+                leftNeck  = 999999999.0
+                rightNeck = 999999999.0
+                for i = leftBar to headBar
+                    offset = bar_index - i
+                    if offset >= 0 and offset < bar_index
+                        leftNeck := math.min(leftNeck, low[offset])
+                for i = headBar to rightBar
+                    offset = bar_index - i
+                    if offset >= 0 and offset < bar_index
+                        rightNeck := math.min(rightNeck, low[offset])
+                if math.abs(leftNeck - rightNeck) <= localATR * hnsTolerance and leftNeck < 999999999.0 and rightNeck < 999999999.0
+                    neckline = (leftNeck + rightNeck) / 2
+                    lv = LevelInfo.new(neckline, 4, 1, rightBar, 0.9, false, false, false)
+                    array.push(levels, lv)
+
+    // Inverse HNS (看漲)
+    if array.size(swingLowPrices) >= 3
+        sz = array.size(swingLowPrices)
+        leftL  = array.get(swingLowPrices, sz - 3)
+        headL  = array.get(swingLowPrices, sz - 2)
+        rightL = array.get(swingLowPrices, sz - 1)
+        leftBar  = array.get(swingLowBars, sz - 3)
+        headBar  = array.get(swingLowBars, sz - 2)
+        rightBar = array.get(swingLowBars, sz - 1)
+
+        if headL < leftL and headL < rightL
+            shoulderDiff = math.abs(leftL - rightL)
+            maxShoulder  = math.max(leftL, rightL)
+            if shoulderDiff < localATR * (1 - hnsShoulderRatio) and (maxShoulder - headL) >= localATR * hnsShoulderRatio
+                leftNeck  = -999999999.0
+                rightNeck = -999999999.0
+                for i = leftBar to headBar
+                    offset = bar_index - i
+                    if offset >= 0 and offset < bar_index
+                        leftNeck := math.max(leftNeck, high[offset])
+                for i = headBar to rightBar
+                    offset = bar_index - i
+                    if offset >= 0 and offset < bar_index
+                        rightNeck := math.max(rightNeck, high[offset])
+                if math.abs(leftNeck - rightNeck) <= localATR * hnsTolerance and leftNeck > -999999999.0 and rightNeck > -999999999.0
+                    neckline = (leftNeck + rightNeck) / 2
+                    lv = LevelInfo.new(neckline, 4, -1, rightBar, 0.9, false, false, false)
+                    array.push(levels, lv)
+
+// 執行偵測
+detectClassic()
+detectBreakout()
+detectGap()
+detectHNS()
+
+// ============================================================
+// 3️⃣ 水平管理 (合併 + 狀態更新 + 清理)
+// ============================================================
+
+// 更新水平狀態: 是否被測試/突破
+updateLevels() =>
+    for i = array.size(levels) - 1 to 0
+        if i < array.size(levels)
+            lv = array.get(levels, i)
+            dist = math.abs(close - lv.price)
+            // 被突破判斷
+            if lv.side == 1  // support
+                if close < lv.price - atrVal * 0.5
+                    lv.broken := true
+            else  // resistance
+                if close > lv.price + atrVal * 0.5
+                    lv.broken := true
+            // 被測試判斷
+            if not lv.tested and dist < atrVal * eqFreshRatio
+                lv.tested := true
+
+updateLevels()
+
+// 清理過舊或已突破的水平
+cleanLevels() =>
+    maxAge = 500
+    for i = array.size(levels) - 1 to 0
+        if i < array.size(levels)
+            lv = array.get(levels, i)
+            age = bar_index - lv.barIdx
+            if lv.broken or age > maxAge
+                array.remove(levels, i)
+    // 限制最大數量
+    while array.size(levels) > maxLevels
+        array.shift(levels)
+
+cleanLevels()
+
+// ============================================================
+// 4️⃣ EQ 過濾 (新鮮水平)
+// ============================================================
+
+isLevelFresh(lv) =>
+    result = true
+    if useEQ
+        result := not lv.tested
+    result
+
+// ============================================================
+// 5️⃣ CC 過濾 (確認 K 線)
+// ============================================================
+
+findCC(lv) =>
+    found = false
+    if useCC
+        proximity = atrVal * ccProximityRatio
+        minBody   = atrVal * ccMinBodyRatio
+        for k = 1 to ccLookback
+            if k < bar_index
+                dist = 0.0
+                ccBody = math.abs(close[k] - open[k])
+                ccBull = close[k] > open[k]
+                if lv.side == 1  // support → 找多頭 CC
+                    dist := math.abs(low[k] - lv.price)
+                    if dist <= proximity and ccBull and ccBody >= minBody
+                        found := true
+                        break
+                else  // resistance → 找空頭 CC
+                    dist := math.abs(high[k] - lv.price)
+                    if dist <= proximity and not ccBull and ccBody >= minBody
+                        found := true
+                        break
+    else
+        found := true  // 不用 CC 過濾時全部通過
+    found
+
+// ============================================================
+// 6️⃣ 多時間框架方向判斷
+// ============================================================
+
+htfClose = request.security(syminfo.tickerid, htf, close)
+htfOpen  = request.security(syminfo.tickerid, htf, open)
+htfHigh  = request.security(syminfo.tickerid, htf, high)
+htfLow   = request.security(syminfo.tickerid, htf, low)
+
+// 高階 TF 趨勢方向
+htfEMA = request.security(syminfo.tickerid, htf, ta.ema(close, mtfPeriod))
+htfBullish = htfClose > htfEMA
+htfBearish = htfClose < htfEMA
+
+// 高階 TF 拒絕偵測
+htfBodySize = math.abs(htfClose - htfOpen)
+htfUpperWick = htfHigh - math.max(htfClose, htfOpen)
+htfLowerWick = math.min(htfClose, htfOpen) - htfLow
+htfRejectionUp   = htfUpperWick > htfBodySize * 2  // 上影線 > 2倍實體 = 上方拒絕
+htfRejectionDown = htfLowerWick > htfBodySize * 2  // 下影線 > 2倍實體 = 下方拒絕
+
+// 綜合方向
+mtfBias = 0  // 1=多, -1=空, 0=中性
+if useMTF
+    if htfBullish and not htfRejectionUp
+        mtfBias := 1
+    else if htfBearish and not htfRejectionDown
+        mtfBias := -1
+
+// ============================================================
+// 7️⃣ 進場訊號產生
+// ============================================================
+
+var float entrySL = na
+var float entryTP = na
+var bool  inTrade = false
+
+// 掃描所有水平尋找進場機會
+longSignal  = false
+shortSignal = false
+signalPrice = 0.0
+signalSL    = 0.0
+signalTP    = 0.0
+signalType  = ""
+
+if not inTrade and array.size(levels) > 0
+    for i = 0 to array.size(levels) - 1
+        if i < array.size(levels)
+            lv = array.get(levels, i)
+
+            if lv.broken
+                continue
+
+            // EQ 過濾
+            if not isLevelFresh(lv)
+                continue
+
+            // CC 過濾
+            hasCC = findCC(lv)
+            lv.hasCC := hasCC
+
+            proximity = atrVal * 0.5
+            slBuffer  = atrVal * slBufferRatio
+
+            // === 支撐做多 ===
+            if lv.side == 1 and low <= lv.price + proximity
+                // MTF 方向過濾
+                if useMTF and mtfBias == -1
+                    continue
+
+                if entryMode == "DC" or entryMode == "Both"
+                    // DC: 多頭 K 線收盤在支撐之上
+                    if isBull and close > lv.price and low <= lv.price + proximity
+                        if hasCC or not useCC
+                            longSignal  := true
+                            signalPrice := close
+                            signalSL    := lv.price - slBuffer
+                            risk        = signalPrice - signalSL
+                            signalTP    := signalPrice + risk * defaultTargetR
+                            signalType  := "DC Long"
+                            break
+
+                if entryMode == "DE" or entryMode == "Both"
+                    // DE: 觸碰即進 (需高強度水平)
+                    if lv.strength >= 0.8 and low <= lv.price + atrVal * 0.1
+                        longSignal  := true
+                        signalPrice := lv.price
+                        signalSL    := lv.price - slBuffer - atrVal * 0.2
+                        risk        = signalPrice - signalSL
+                        signalTP    := signalPrice + risk * defaultTargetR
+                        signalType  := "DE Long"
+                        break
+
+            // === 阻力做空 ===
+            if lv.side == -1 and high >= lv.price - proximity
+                if useMTF and mtfBias == 1
+                    continue
+
+                if entryMode == "DC" or entryMode == "Both"
+                    if isBear and close < lv.price and high >= lv.price - proximity
+                        if hasCC or not useCC
+                            shortSignal := true
+                            signalPrice := close
+                            signalSL    := lv.price + slBuffer
+                            risk        = signalSL - signalPrice
+                            signalTP    := signalPrice - risk * defaultTargetR
+                            signalType  := "DC Short"
+                            break
+
+                if entryMode == "DE" or entryMode == "Both"
+                    if lv.strength >= 0.8 and high >= lv.price - atrVal * 0.1
+                        shortSignal := true
+                        signalPrice := lv.price
+                        signalSL    := lv.price + slBuffer + atrVal * 0.2
+                        risk        = signalSL - signalPrice
+                        signalTP    := signalPrice - risk * defaultTargetR
+                        signalType  := "DE Short"
+                        break
+
+// ============================================================
+// 8️⃣ 執行交易 + 風險管理
+// ============================================================
+
+if longSignal and not inTrade
+    strategy.entry("Long", strategy.long)
+    entrySL  := signalSL
+    entryTP  := signalTP
+    inTrade  := true
+
+if shortSignal and not inTrade
+    strategy.entry("Short", strategy.short)
+    entrySL  := signalSL
+    entryTP  := signalTP
+    inTrade  := true
+
+// 止損 & 止盈
+if inTrade
+    if strategy.position_size > 0
+        strategy.exit("Exit Long", "Long", stop=entrySL, limit=entryTP)
+        // 保本移動: 獲利 >= 2R 時
+        entryPrice = strategy.position_avg_price
+        risk = entryPrice - entrySL
+        if risk > 0
+            currentProfit = close - entryPrice
+            if currentProfit >= risk * beMinRR
+                entrySL  := entryPrice  // 移至保本
+                entryTP  := entryPrice + risk * maxTargetR  // 延伸目標
+                strategy.exit("Exit Long BE", "Long", stop=entrySL, limit=entryTP)
+
+    if strategy.position_size < 0
+        strategy.exit("Exit Short", "Short", stop=entrySL, limit=entryTP)
+        entryPrice = strategy.position_avg_price
+        risk = entrySL - entryPrice
+        if risk > 0
+            currentProfit = entryPrice - close
+            if currentProfit >= risk * beMinRR
+                entrySL  := entryPrice
+                entryTP  := entryPrice - risk * maxTargetR
+                strategy.exit("Exit Short BE", "Short", stop=entrySL, limit=entryTP)
+
+// 偵測平倉
+if strategy.position_size == 0
+    inTrade := false
+
+// ============================================================
+// 9️⃣ 視覺化繪圖
+// ============================================================
+
+// 繪製水平線
+if barstate.islast and array.size(levels) > 0
+    for i = 0 to math.min(array.size(levels) - 1, maxLevels - 1)
+        lv = array.get(levels, i)
+        if lv.broken
+            continue
+
+        showIt = false
+        lvColor = color.gray
+
+        if lv.levelType == 1 and showClassic
+            showIt  := true
+            lvColor := color.new(color.yellow, 30)
+        else if lv.levelType == 2 and showBreakout
+            showIt  := true
+            lvColor := color.new(color.orange, 30)
+        else if lv.levelType == 3 and showGap
+            showIt  := true
+            lvColor := color.new(#00bfff, 30)
+        else if lv.levelType == 4 and showHNS
+            showIt  := true
+            lvColor := color.new(color.fuchsia, 30)
+
+        if showIt
+            lvLine = line.new(lv.barIdx, lv.price, bar_index, lv.price, 
+                              color=lvColor, style=lv.side == 1 ? line.style_solid : line.style_dashed, 
+                              width=lv.hasCC ? 2 : 1)
+            line.delete(lvLine[1])
+
+            if showLabels
+                typeStr = lv.levelType == 1 ? "C" : lv.levelType == 2 ? "BO" : lv.levelType == 3 ? "G" : "HNS"
+                sideStr = lv.side == 1 ? "S" : "R"
+                eqStr   = lv.tested ? "" : " EQ"
+                ccStr   = lv.hasCC ? " CC" : ""
+                lblText = typeStr + " " + sideStr + eqStr + ccStr
+                lvLabel = label.new(bar_index, lv.price, lblText, 
+                                    color=color.new(color.black, 80), textcolor=lvColor, 
+                                    style=lv.side == 1 ? label.style_label_up : label.style_label_down, 
+                                    size=size.tiny)
+                label.delete(lvLabel[1])
+
+// 進出場標記
+plotshape(showSignals and longSignal, "Long Signal", shape.triangleup, 
+          location.belowbar, color.new(#00ff88, 0), size=size.small)
+plotshape(showSignals and shortSignal, "Short Signal", shape.triangledown, 
+          location.abovebar, color.new(#ff4444, 0), size=size.small)
+
+// 止損/止盈線
+plot(inTrade and strategy.position_size != 0 ? entrySL : na, "Stop Loss", 
+     color.new(color.red, 40), 1, plot.style_linebr)
+plot(inTrade and strategy.position_size != 0 ? entryTP : na, "Take Profit", 
+     color.new(color.green, 40), 1, plot.style_linebr)
+
+// MTF 方向背景
+bgcolor(useMTF and mtfBias == 1  ? color.new(color.green, 95) : 
+        useMTF and mtfBias == -1 ? color.new(color.red, 95) : na, title="MTF 方向背景")
+
+// ============================================================
+// 🔟 資訊面板
+// ============================================================
+
+var table infoPanel = table.new(position.top_right, 2, 8, 
+                                 bgcolor=color.new(#1a1a2e, 10), 
+                                 border_color=color.new(color.gray, 50), border_width=1)
+if barstate.islast
+    table.cell(infoPanel, 0, 0, "SNR 2.0", text_color=color.white, text_size=size.normal)
+    table.cell(infoPanel, 1, 0, "策略面板", text_color=color.gray, text_size=size.small)
+    
+    table.cell(infoPanel, 0, 1, "水平數", text_color=color.gray, text_size=size.small)
+    activeLevels = 0
+    for i = 0 to array.size(levels) - 1
+        if i < array.size(levels)
+            if not array.get(levels, i).broken
+                activeLevels += 1
+    table.cell(infoPanel, 1, 1, str.tostring(activeLevels), text_color=color.white, text_size=size.small)
+    
+    table.cell(infoPanel, 0, 2, "MTF 方向", text_color=color.gray, text_size=size.small)
+    mtfStr = mtfBias == 1 ? "▲ 多" : mtfBias == -1 ? "▼ 空" : "— 中性"
+    mtfCol = mtfBias == 1 ? color.green : mtfBias == -1 ? color.red : color.gray
+    table.cell(infoPanel, 1, 2, mtfStr, text_color=mtfCol, text_size=size.small)
+    
+    table.cell(infoPanel, 0, 3, "進場模式", text_color=color.gray, text_size=size.small)
+    table.cell(infoPanel, 1, 3, entryMode, text_color=color.white, text_size=size.small)
+    
+    table.cell(infoPanel, 0, 4, "ATR", text_color=color.gray, text_size=size.small)
+    table.cell(infoPanel, 1, 4, str.tostring(atrVal, "#.##"), text_color=color.white, text_size=size.small)
+    
+    table.cell(infoPanel, 0, 5, "持倉", text_color=color.gray, text_size=size.small)
+    posStr = strategy.position_size > 0 ? "▲ Long" : strategy.position_size < 0 ? "▼ Short" : "—"
+    posCol = strategy.position_size > 0 ? color.green : strategy.position_size < 0 ? color.red : color.gray
+    table.cell(infoPanel, 1, 5, posStr, text_color=posCol, text_size=size.small)
+    
+    table.cell(infoPanel, 0, 6, "EQ", text_color=color.gray, text_size=size.small)
+    table.cell(infoPanel, 1, 6, useEQ ? "ON" : "OFF", text_color=useEQ ? color.green : color.red, text_size=size.small)
+    
+    table.cell(infoPanel, 0, 7, "CC", text_color=color.gray, text_size=size.small)
+    table.cell(infoPanel, 1, 7, useCC ? "ON" : "OFF", text_color=useCC ? color.green : color.red, text_size=size.small)

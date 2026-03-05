@@ -1,0 +1,52 @@
+version: "3.8"
+
+services:
+  # ============================================================
+  # SNR 2.0 回測服務
+  # ============================================================
+  backtest:
+    build: .
+    image: snr2-trading-bot
+    container_name: snr2-backtest
+    volumes:
+      # 報告輸出到本機 output 目錄
+      - ./output:/app/output
+    # 預設執行回測 (可覆蓋)
+    command: >
+      --symbol BTC/USDT
+      --timeframe 1h
+      --limit 1000
+      --output /app/output
+
+  # ============================================================
+  # 快速範例: ETH 回測
+  # ============================================================
+  backtest-eth:
+    build: .
+    image: snr2-trading-bot
+    container_name: snr2-backtest-eth
+    volumes:
+      - ./output:/app/output
+    command: >
+      --symbol ETH/USDT
+      --timeframe 15m
+      --limit 2000
+      --output /app/output
+
+  # ============================================================
+  # 無過濾器模式 (測試用)
+  # ============================================================
+  backtest-raw:
+    build: .
+    image: snr2-trading-bot
+    container_name: snr2-backtest-raw
+    volumes:
+      - ./output:/app/output
+    command: >
+      --symbol BTC/USDT
+      --timeframe 1h
+      --limit 1000
+      --no-eq
+      --no-cc
+      --no-mtf
+      --output /app/output

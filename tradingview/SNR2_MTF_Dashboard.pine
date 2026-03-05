@@ -1,0 +1,210 @@
+// ============================================================
+// SNR 2.0 多時間框架儀表板
+// ============================================================
+// 獨立指標: 顯示多時間框架的方向、水平、拒絕狀態
+// 搭配主策略使用，幫助判斷高階 TF 的故事線
+// ============================================================
+
+//@version=6
+indicator("SNR 2.0 MTF 儀表板", overlay=false)
+
+// ============================================================
+// 輸入參數
+// ============================================================
+
+grp = "═══ 時間框架設定 ═══"
+tf1 = input.timeframe("5",   "TF1 (進場)",   group=grp)
+tf2 = input.timeframe("15",  "TF2 (低階)",   group=grp)
+tf3 = input.timeframe("60",  "TF3 (中階)",   group=grp)
+tf4 = input.timeframe("240", "TF4 (高階)",   group=grp)
+tf5 = input.timeframe("D",   "TF5 (日線)",   group=grp)
+
+emaPeriod   = input.int(20, "EMA 週期", minval=5)
+rsiPeriod   = input.int(14, "RSI 週期", minval=5)
+rsiOB       = input.int(70, "RSI 超買", minval=60)
+rsiOS       = input.int(30, "RSI 超賣", maxval=40)
+
+// ============================================================
+// 多 TF 數據請求
+// ============================================================
+
+// EMA
+ema1 = request.security(syminfo.tickerid, tf1, ta.ema(close, emaPeriod))
+ema2 = request.security(syminfo.tickerid, tf2, ta.ema(close, emaPeriod))
+ema3 = request.security(syminfo.tickerid, tf3, ta.ema(close, emaPeriod))
+ema4 = request.security(syminfo.tickerid, tf4, ta.ema(close, emaPeriod))
+ema5 = request.security(syminfo.tickerid, tf5, ta.ema(close, emaPeriod))
+
+// Close
+c1 = request.security(syminfo.tickerid, tf1, close)
+c2 = request.security(syminfo.tickerid, tf2, close)
+c3 = request.security(syminfo.tickerid, tf3, close)
+c4 = request.security(syminfo.tickerid, tf4, close)
+c5 = request.security(syminfo.tickerid, tf5, close)
+
+// RSI
+rsi1 = request.security(syminfo.tickerid, tf1, ta.rsi(close, rsiPeriod))
+rsi2 = request.security(syminfo.tickerid, tf2, ta.rsi(close, rsiPeriod))
+rsi3 = request.security(syminfo.tickerid, tf3, ta.rsi(close, rsiPeriod))
+rsi4 = request.security(syminfo.tickerid, tf4, ta.rsi(close, rsiPeriod))
+rsi5 = request.security(syminfo.tickerid, tf5, ta.rsi(close, rsiPeriod))
+
+// K 線資訊 (拒絕偵測)
+[o1, h1, l1] = request.security(syminfo.tickerid, tf1, [open, high, low])
+[o2, h2, l2] = request.security(syminfo.tickerid, tf2, [open, high, low])
+[o3, h3, l3] = request.security(syminfo.tickerid, tf3, [open, high, low])
+[o4, h4, l4] = request.security(syminfo.tickerid, tf4, [open, high, low])
+[o5, h5, l5] = request.security(syminfo.tickerid, tf5, [open, high, low])
+
+// ============================================================
+// 方向 & 拒絕計算
+// ============================================================
+
+getBias(c, ema) =>
+    c > ema ? 1 : c < ema ? -1 : 0
+
+getRejection(o, h, l, c) =>
+    bodySize = math.abs(c - o)
+    upperWick = h - math.max(c, o)
+    lowerWick = math.min(c, o) - l
+    rejUp   = bodySize > 0 and upperWick > bodySize * 2
+    rejDown = bodySize > 0 and lowerWick > bodySize * 2
+    [rejUp, rejDown]
+
+bias1 = getBias(c1, ema1)
+bias2 = getBias(c2, ema2)
+bias3 = getBias(c3, ema3)
+bias4 = getBias(c4, ema4)
+bias5 = getBias(c5, ema5)
+
+[rej1Up, rej1Dn] = getRejection(o1, h1, l1, c1)
+[rej2Up, rej2Dn] = getRejection(o2, h2, l2, c2)
+[rej3Up, rej3Dn] = getRejection(o3, h3, l3, c3)
+[rej4Up, rej4Dn] = getRejection(o4, h4, l4, c4)
+[rej5Up, rej5Dn] = getRejection(o5, h5, l5, c5)
+
+// ============================================================
+// 綜合評分 (加權)
+// ============================================================
+
+// 高 TF 權重大
+totalScore = bias1 * 0.05 + bias2 * 0.10 + bias3 * 0.25 + bias4 * 0.35 + bias5 * 0.25
+
+// 繪製評分線
+plot(totalScore, "MTF 綜合評分", color=totalScore > 0 ? color.green : totalScore < 0 ? color.red : color.gray, linewidth=2)
+hline(0, "中線", color=color.gray, linestyle=hline.style_dashed)
+hline(0.5, "偏多", color=color.new(color.green, 70), linestyle=hline.style_dotted)
+hline(-0.5, "偏空", color=color.new(color.red, 70), linestyle=hline.style_dotted)
+
+// 背景
+bgcolor(totalScore > 0.3 ? color.new(color.green, 90) : totalScore < -0.3 ? color.new(color.red, 90) : na)
+
+// ============================================================
+// 儀表板表格
+// ============================================================
+
+var table dashboard = table.new(position.top_right, 7, 7, 
+                                 bgcolor=color.new(#0e1117, 5), 
+                                 border_color=color.new(color.gray, 60), border_width=1)
+
+biasColor(b) =>
+    b > 0 ? color.green : b < 0 ? color.red : color.gray
+
+biasStr(b) =>
+    b > 0 ? "▲ 多" : b < 0 ? "▼ 空" : "— 中"
+
+rsiColor(r) =>
+    r >= rsiOB ? color.red : r <= rsiOS ? color.green : color.gray
+
+rejStr(up, dn) =>
+    up ? "↓ 拒上" : dn ? "↑ 拒下" : "—"
+
+rejColor(up, dn) =>
+    up ? color.red : dn ? color.green : color.gray
+
+if barstate.islast
+    // 標題列
+    table.cell(dashboard, 0, 0, "TF",     text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 0, "方向",    text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 2, 0, "RSI",     text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 3, 0, "拒絕",    text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 4, 0, "收盤",    text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 5, 0, "EMA",     text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 6, 0, "距EMA%",  text_color=color.white, text_size=size.small)
+
+    // TF1
+    table.cell(dashboard, 0, 1, tf1,          text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 1, biasStr(bias1), text_color=biasColor(bias1), text_size=size.small)
+    table.cell(dashboard, 2, 1, str.tostring(rsi1, "#.0"), text_color=rsiColor(rsi1), text_size=size.small)
+    table.cell(dashboard, 3, 1, rejStr(rej1Up, rej1Dn), text_color=rejColor(rej1Up, rej1Dn), text_size=size.small)
+    table.cell(dashboard, 4, 1, str.tostring(c1, "#.##"), text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 5, 1, str.tostring(ema1, "#.##"), text_color=color.gray, text_size=size.small)
+    pct1 = ema1 != 0 ? (c1 - ema1) / ema1 * 100 : 0
+    table.cell(dashboard, 6, 1, str.tostring(pct1, "#.##") + "%", text_color=biasColor(bias1), text_size=size.small)
+
+    // TF2
+    table.cell(dashboard, 0, 2, tf2,          text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 2, biasStr(bias2), text_color=biasColor(bias2), text_size=size.small)
+    table.cell(dashboard, 2, 2, str.tostring(rsi2, "#.0"), text_color=rsiColor(rsi2), text_size=size.small)
+    table.cell(dashboard, 3, 2, rejStr(rej2Up, rej2Dn), text_color=rejColor(rej2Up, rej2Dn), text_size=size.small)
+    table.cell(dashboard, 4, 2, str.tostring(c2, "#.##"), text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 5, 2, str.tostring(ema2, "#.##"), text_color=color.gray, text_size=size.small)
+    pct2 = ema2 != 0 ? (c2 - ema2) / ema2 * 100 : 0
+    table.cell(dashboard, 6, 2, str.tostring(pct2, "#.##") + "%", text_color=biasColor(bias2), text_size=size.small)
+
+    // TF3
+    table.cell(dashboard, 0, 3, tf3,          text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 1, 3, biasStr(bias3), text_color=biasColor(bias3), text_size=size.small)
+    table.cell(dashboard, 2, 3, str.tostring(rsi3, "#.0"), text_color=rsiColor(rsi3), text_size=size.small)
+    table.cell(dashboard, 3, 3, rejStr(rej3Up, rej3Dn), text_color=rejColor(rej3Up, rej3Dn), text_size=size.small)
+    table.cell(dashboard, 4, 3, str.tostring(c3, "#.##"), text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 5, 3, str.tostring(ema3, "#.##"), text_color=color.gray, text_size=size.small)
+    pct3 = ema3 != 0 ? (c3 - ema3) / ema3 * 100 : 0
+    table.cell(dashboard, 6, 3, str.tostring(pct3, "#.##") + "%", text_color=biasColor(bias3), text_size=size.small)
+
+    // TF4
+    table.cell(dashboard, 0, 4, tf4,          text_color=color.yellow, text_size=size.small)
+    table.cell(dashboard, 1, 4, biasStr(bias4), text_color=biasColor(bias4), text_size=size.small)
+    table.cell(dashboard, 2, 4, str.tostring(rsi4, "#.0"), text_color=rsiColor(rsi4), text_size=size.small)
+    table.cell(dashboard, 3, 4, rejStr(rej4Up, rej4Dn), text_color=rejColor(rej4Up, rej4Dn), text_size=size.small)
+    table.cell(dashboard, 4, 4, str.tostring(c4, "#.##"), text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 5, 4, str.tostring(ema4, "#.##"), text_color=color.gray, text_size=size.small)
+    pct4 = ema4 != 0 ? (c4 - ema4) / ema4 * 100 : 0
+    table.cell(dashboard, 6, 4, str.tostring(pct4, "#.##") + "%", text_color=biasColor(bias4), text_size=size.small)
+
+    // TF5
+    table.cell(dashboard, 0, 5, tf5,          text_color=color.orange, text_size=size.small)
+    table.cell(dashboard, 1, 5, biasStr(bias5), text_color=biasColor(bias5), text_size=size.small)
+    table.cell(dashboard, 2, 5, str.tostring(rsi5, "#.0"), text_color=rsiColor(rsi5), text_size=size.small)
+    table.cell(dashboard, 3, 5, rejStr(rej5Up, rej5Dn), text_color=rejColor(rej5Up, rej5Dn), text_size=size.small)
+    table.cell(dashboard, 4, 5, str.tostring(c5, "#.##"), text_color=color.white, text_size=size.small)
+    table.cell(dashboard, 5, 5, str.tostring(ema5, "#.##"), text_color=color.gray, text_size=size.small)
+    pct5 = ema5 != 0 ? (c5 - ema5) / ema5 * 100 : 0
+    table.cell(dashboard, 6, 5, str.tostring(pct5, "#.##") + "%", text_color=biasColor(bias5), text_size=size.small)
+
+    // 綜合
+    table.cell(dashboard, 0, 6, "綜合",      text_color=color.white, text_size=size.normal)
+    overallStr = totalScore > 0.3 ? "▲ 強多" : totalScore > 0 ? "▲ 弱多" : totalScore < -0.3 ? "▼ 強空" : totalScore < 0 ? "▼ 弱空" : "— 中性"
+    overallCol = totalScore > 0.3 ? color.green : totalScore > 0 ? color.new(color.green, 40) : totalScore < -0.3 ? color.red : totalScore < 0 ? color.new(color.red, 40) : color.gray
+    table.cell(dashboard, 1, 6, overallStr, text_color=overallCol, text_size=size.normal)
+    table.cell(dashboard, 2, 6, str.tostring(totalScore, "#.##"), text_color=overallCol, text_size=size.small)
+
+    // 故事線提示
+    storyStr = ""
+    if bias4 > 0 and rej4Up
+        storyStr := "H4 多但上方拒絕 → 小心反轉"
+    else if bias4 < 0 and rej4Dn
+        storyStr := "H4 空但下方拒絕 → 小心反彈"
+    else if bias4 > 0 and bias2 > 0
+        storyStr := "H4+M15 同多 → 找支撐做多"
+    else if bias4 < 0 and bias2 < 0
+        storyStr := "H4+M15 同空 → 找阻力做空"
+    else if bias4 > 0 and bias2 < 0
+        storyStr := "H4 多 M15 空 → 等低 TF 確認"
+    else if bias4 < 0 and bias2 > 0
+        storyStr := "H4 空 M15 多 → 等低 TF 確認"
+    else
+        storyStr := "方向不明 → 觀望"
+
+    table.cell(dashboard, 3, 6, storyStr, text_color=color.white, text_size=size.small)
+    table.merge_cells(dashboard, 3, 6, 6, 6)

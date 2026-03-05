@@ -1,0 +1,38 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.egg-info/
+dist/
+build/
+*.egg
+.venv/
+venv/
+env/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# Output / Reports
+output/
+*.png
+*.csv
+
+# Environment
+.env
+.env.*
+
+# Windows special files
+nul
+
+# Docker
+# (Dockerfile and docker-compose.yml are tracked)
