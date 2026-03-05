@@ -577,9 +577,7 @@ if barstate.islast and showZones
             lv = array.get(levels, i)
             if lv.broken and not showBrokenZones
                 continue
-            baseColor = lv.levelType == 1 ? color.yellow :
-                       lv.levelType == 2 ? color.orange :
-                       lv.levelType == 3 ? #00bfff : color.fuchsia
+            baseColor = lv.levelType == 1 ? color.yellow : lv.levelType == 2 ? color.orange : lv.levelType == 3 ? #00bfff : color.fuchsia
             transp = lv.tested ? (lv.testCount >= 2 ? 92 : 88) : 82
             if lv.broken
                 transp := 95
@@ -590,9 +588,7 @@ if barstate.islast and showZones
                             border_color=borderColor, border_width=1,
                             border_style=borderStyle, bgcolor=fillColor)
             array.push(zoneBoxes, newBox)
-            typeStr = lv.levelType == 1 ? "Classic" :
-                     lv.levelType == 2 ? "Breakout" :
-                     lv.levelType == 3 ? "Gap" : "HNS"
+            typeStr = lv.levelType == 1 ? "Classic" : lv.levelType == 2 ? "Breakout" : lv.levelType == 3 ? "Gap" : "HNS"
             sideStr = lv.side == 1 ? "S" : "R"
             freshStr = lv.tested ? (str.tostring(lv.testCount) + "x") : "EQ"
             ccStr = lv.hasCC ? (lv.ccType == 1 ? " CC" : lv.ccType == 2 ? " BO1" : lv.ccType == 3 ? " BO2" : lv.ccType == 4 ? " HCC" : "") : ""
@@ -612,16 +608,9 @@ if showCCHighlight and array.size(levels) > 0
         if i < array.size(levels)
             lv = array.get(levels, i)
             if lv.hasCC and lv.ccBar == bar_index
-                ccBgColor := lv.ccType == 1 ? color.new(#64b5f6, 85) :
-                            lv.ccType == 2 ? color.new(#ffb74d, 85) :
-                            lv.ccType == 3 ? color.new(#ff8a65, 85) :
-                            lv.ccType == 4 ? color.new(#ce93d8, 85) :
-                            color.new(color.blue, 85)
+                ccBgColor := lv.ccType == 1 ? color.new(#64b5f6, 85) : lv.ccType == 2 ? color.new(#ffb74d, 85) : lv.ccType == 3 ? color.new(#ff8a65, 85) : lv.ccType == 4 ? color.new(#ce93d8, 85) : color.new(color.blue, 85)
                 if showCCLabels
-                    ccTypeStr = lv.ccType == 1 ? "CC" :
-                               lv.ccType == 2 ? "BOCC1" :
-                               lv.ccType == 3 ? "BOCC2" :
-                               lv.ccType == 4 ? "HNS-CC" : "CC"
+                    ccTypeStr = lv.ccType == 1 ? "CC" : lv.ccType == 2 ? "BOCC1" : lv.ccType == 3 ? "BOCC2" : lv.ccType == 4 ? "HNS-CC" : "CC"
                     ccLblStyle = lv.side == 1 ? label.style_label_up : label.style_label_down
                     ccLblY = lv.side == 1 ? low : high
                     label.new(bar_index, ccLblY, ccTypeStr + "\n@" + str.tostring(lv.price, "#.##"),
@@ -874,11 +863,7 @@ alertcondition(mtfChanged, "MTF方向改變", "SNR2: MTF bias changed")
 anySignal = longSignal or shortSignal
 if anySignal and enableAlerts
     dir = longSignal ? "LONG" : "SHORT"
-    alertMsg = '{"signal":"' + dir + '","type":"' + signalType + '","level":"' + signalLevelType +
-               '","price":' + str.tostring(signalPrice) + ',"sl":' + str.tostring(signalSL) +
-               ',"tp":' + str.tostring(signalTP) + ',"cc":"' + signalCCType +
-               '","eq":' + (signalEQ ? '"fresh"' : '"tested"') +
-               ',"mtf":' + str.tostring(mtfBias) + '}'
+    alertMsg = '{"signal":"' + dir + '","type":"' + signalType + '","level":"' + signalLevelType + '","price":' + str.tostring(signalPrice) + ',"sl":' + str.tostring(signalSL) + ',"tp":' + str.tostring(signalTP) + ',"cc":"' + signalCCType + '","eq":' + (signalEQ ? '"fresh"' : '"tested"') + ',"mtf":' + str.tostring(mtfBias) + '}'
     alert(alertMsg, alert.freq_once_per_bar_close)
 
 // ============================================================
