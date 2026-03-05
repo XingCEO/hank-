@@ -573,30 +573,31 @@ if barstate.islast and showTrendlines
     array.clear(tlLabels)
 
     if array.size(trendlines) > 0
+        // Pine Script line.new 限制 x 座標不能離當前 bar 太遠 (約 5000 bars)
+        // 所以用可見範圍內的點來繪製：從 max(startBar, bar_index - 4990) 畫到 bar_index + tlExtend
+        maxLookback = 4990
         for i = 0 to array.size(trendlines) - 1
             tl = array.get(trendlines, i)
-            // liveTouches < 2 → 不顯示 (還沒確認)
             if tl.liveTouches < 2
                 continue
-            extendedBar = bar_index + tlExtend
-            extendedPrice = tl.startPrice + tl.slope * (extendedBar - tl.startBar)
-            // 顏色：上升=綠, 下降=紅
+            // 計算繪圖用的起點 (限制在可見範圍)
+            drawStartBar = math.max(tl.startBar, bar_index - maxLookback)
+            drawStartPrice = tl.startPrice + tl.slope * (drawStartBar - tl.startBar)
+            drawEndBar = bar_index + tlExtend
+            drawEndPrice = tl.startPrice + tl.slope * (drawEndBar - tl.startBar)
             baseCol = tl.direction == 1 ? #00e676 : #ff5252
-            // 3次觸碰(訊號) = 不透明, 2次(確認) = 半透明
             transp = tl.liveTouches >= 3 ? 10 : 50
             tlColor = color.new(baseCol, transp)
-            // 3次 = 實線粗, 2次 = 虛線細
             tlStyle = tl.liveTouches >= 3 ? line.style_solid : line.style_dashed
             tlWidth = tl.liveTouches >= 3 ? 2 : 1
-            newLine = line.new(tl.startBar, tl.startPrice, extendedBar, extendedPrice, color=tlColor, style=tlStyle, width=tlWidth)
+            newLine = line.new(drawStartBar, drawStartPrice, drawEndBar, drawEndPrice, color=tlColor, style=tlStyle, width=tlWidth)
             array.push(tlLines, newLine)
-            // 標籤：顯示類型 + 觸碰次數 + 狀態
             typeStr = tl.tlType == 1 ? "TL-111" : "TL-11b2"
             statusStr = tl.liveTouches >= 3 ? " SIGNAL" : " confirmed"
             touchStr = " (" + str.tostring(tl.liveTouches) + "T)"
-            midBar = math.round((tl.startBar + tl.endBar) / 2)
-            midPrice = tl.startPrice + tl.slope * (midBar - tl.startBar)
-            newLabel = label.new(midBar, midPrice, typeStr + touchStr + statusStr, color=color.new(color.black, 80), textcolor=tlColor, style=label.style_label_center, size=size.tiny)
+            lblBar = math.max(math.round((tl.startBar + tl.endBar) / 2), bar_index - maxLookback)
+            lblPrice = tl.startPrice + tl.slope * (lblBar - tl.startBar)
+            newLabel = label.new(lblBar, lblPrice, typeStr + touchStr + statusStr, color=color.new(color.black, 80), textcolor=tlColor, style=label.style_label_center, size=size.tiny)
             array.push(tlLabels, newLabel)
 
 // 趨勢線突破偵測 (只偵測 liveTouches >= 2 的有效線)
