@@ -147,14 +147,22 @@ def check_dc_entry(
             return None
         if curr_close <= price:
             return None
-        # 確認: K 線低點要接近水平
-        if df["low"].iloc[bar_index] > price + local_atr * 0.5:
+        # 確認: K 線低點要接近水平 (碰到或穿刺)
+        bar_low = df["low"].iloc[bar_index]
+        if bar_low > price + local_atr * 0.5:
             return None
 
+        # SL 放在進場 K 線 low 下方 (而非水平價)
+        # 這確保 risk = close - low - buffer，比較小且合理
         entry_price = curr_close
-        stop_loss = price - sl_buffer
-        target_r = RISK_CONFIG["default_target_r"]
+        stop_loss = bar_low - sl_buffer
         risk = entry_price - stop_loss
+
+        # risk 不能太小 (避免計算出巨大倉位) 也不能太大
+        if risk < local_atr * 0.1 or risk > local_atr * 1.5:
+            return None
+
+        target_r = RISK_CONFIG["default_target_r"]
         take_profit = entry_price + risk * target_r
 
         return Signal(
@@ -177,13 +185,19 @@ def check_dc_entry(
             return None
         if curr_close >= price:
             return None
-        if df["high"].iloc[bar_index] < price - local_atr * 0.5:
+        bar_high = df["high"].iloc[bar_index]
+        if bar_high < price - local_atr * 0.5:
             return None
 
+        # SL 放在進場 K 線 high 上方
         entry_price = curr_close
-        stop_loss = price + sl_buffer
-        target_r = RISK_CONFIG["default_target_r"]
+        stop_loss = bar_high + sl_buffer
         risk = stop_loss - entry_price
+
+        if risk < local_atr * 0.1 or risk > local_atr * 1.5:
+            return None
+
+        target_r = RISK_CONFIG["default_target_r"]
         take_profit = entry_price - risk * target_r
 
         return Signal(

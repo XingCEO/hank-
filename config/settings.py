@@ -40,7 +40,7 @@ LEVELS_CONFIG = {
     "classic_gap_atr_ratio": 0.3,
 
     # Breakout 水平：突破 K 線實體最小長度 (佔 ATR 的比例)
-    "breakout_body_atr_ratio": 1.0,
+    "breakout_body_atr_ratio": 1.2,
     # 突破缺口兩側無干擾的最小距離 (根數)
     "breakout_clean_bars": 2,
 
@@ -60,8 +60,8 @@ LEVELS_CONFIG = {
 # EQ (Equilibrium) 過濾參數
 # ============================================================
 EQ_CONFIG = {
-    # 判定「新鮮」的容忍距離 (佔 ATR 的比例)
-    "fresh_tolerance_atr_ratio": 0.1,
+    # 判定「新鮮」的容忍距離 (佔 ATR 的比例，越大越嚴格)
+    "fresh_tolerance_atr_ratio": 0.3,
     # 搜尋 EQ 時使用的時間框架 (由高到低)
     "scan_timeframes": ["4h", "1h", "30m", "15m"],
 }
@@ -71,11 +71,11 @@ EQ_CONFIG = {
 # ============================================================
 CC_CONFIG = {
     # CC 必須出現在水平附近的最大距離 (佔 ATR 的比例)
-    "proximity_atr_ratio": 0.5,
+    "proximity_atr_ratio": 0.8,
     # CC K 線實體最小長度 (佔 ATR 的比例)
-    "min_body_atr_ratio": 0.3,
+    "min_body_atr_ratio": 0.2,
     # CC 搜尋的最大回看根數
-    "max_lookback_bars": 10,
+    "max_lookback_bars": 20,
 }
 
 # ============================================================
@@ -110,14 +110,26 @@ RISK_CONFIG = {
     "risk_per_trade_pct": 1.0,
     # 初始帳戶餘額 (USDT)
     "initial_balance": 10000.0,
-    # 預設目標 R 值
-    "default_target_r": 1.0,
-    # 最大目標 R 值
-    "max_target_r": 3.0,
-    # 移動止損至保本的最低盈虧比
-    "breakeven_min_rr": 2.0,
-    # 止損 buffer (佔 ATR 的比例)
-    "sl_buffer_atr_ratio": 0.1,
+    # 初始目標 R 值 (2R 搭配追蹤止損，讓贏家跑更遠)
+    "default_target_r": 2.0,
+    # 最大目標 R 值 (追蹤止損主動管理，此為上限保護)
+    "max_target_r": 5.0,
+    # 移動止損至保本的最低盈虧比 (到 1.5R 就保本)
+    "breakeven_min_rr": 1.5,
+    # 止損 buffer (佔 ATR 的比例，0.3 = 較合理的噪音空間)
+    "sl_buffer_atr_ratio": 0.3,
+}
+
+# ============================================================
+# ADX (趨勢強度) 過濾參數
+# ============================================================
+ADX_CONFIG = {
+    # ADX 計算期數
+    "period": 14,
+    # ADX 低於此值視為盤整市場，不進場
+    "min_trend_threshold": 20,
+    # ADX 高於此值視為強趨勢，可放寬進場
+    "strong_trend_threshold": 40,
 }
 
 # ============================================================

@@ -125,42 +125,63 @@ class RiskManager:
         pos.max_favorable = max(pos.max_favorable, unrealized)
         pos.max_adverse = max(pos.max_adverse, adverse)
 
-        # --- 檢查止損 ---
+        # --- 判斷 SL/TP 命中 (同一根 bar 都觸及時，用開盤方向判斷先後) ---
+        hit_sl = False
+        hit_tp = False
+
         if pos.signal.direction == TradeDirection.LONG:
-            if low <= pos.current_sl:
-                return self._close_position(pos, pos.current_sl, bar_index, "止損")
+            hit_sl = low <= pos.current_sl
+            hit_tp = high >= pos.current_tp
         else:
-            if high >= pos.current_sl:
-                return self._close_position(pos, pos.current_sl, bar_index, "止損")
+            hit_sl = high >= pos.current_sl
+            hit_tp = low <= pos.current_tp
 
-        # --- 檢查止盈 ---
-        if pos.signal.direction == TradeDirection.LONG:
-            if high >= pos.current_tp:
-                return self._close_position(pos, pos.current_tp, bar_index, "止盈")
-        else:
-            if low <= pos.current_tp:
-                return self._close_position(pos, pos.current_tp, bar_index, "止盈")
-
-        # --- 移動止損至保本 ---
-        if not pos.breakeven_moved:
-            min_rr = RISK_CONFIG["breakeven_min_rr"]
-            risk = pos.signal.risk
-
+        if hit_sl and hit_tp:
+            # 同一根 bar 觸及 SL 和 TP：用開盤相對進場方向判定
+            # 若開盤已朝 TP 方向，假設先觸 TP；反之先觸 SL
             if pos.signal.direction == TradeDirection.LONG:
-                current_profit = close - pos.entry_price
-                if current_profit >= risk * min_rr:
-                    pos.current_sl = pos.entry_price  # 移至保本
-                    pos.breakeven_moved = True
-                    # 延伸目標到 3R
-                    max_r = RISK_CONFIG["max_target_r"]
-                    pos.current_tp = pos.entry_price + risk * max_r
+                opens_favorable = close > pos.entry_price
             else:
-                current_profit = pos.entry_price - close
-                if current_profit >= risk * min_rr:
-                    pos.current_sl = pos.entry_price
-                    pos.breakeven_moved = True
-                    max_r = RISK_CONFIG["max_target_r"]
-                    pos.current_tp = pos.entry_price - risk * max_r
+                opens_favorable = close < pos.entry_price
+            if opens_favorable:
+                return self._close_position(pos, pos.current_tp, bar_index, "止盈")
+            else:
+                return self._close_position(pos, pos.current_sl, bar_index, "止損")
+
+        if hit_tp:
+            return self._close_position(pos, pos.current_tp, bar_index, "止盈")
+
+        if hit_sl:
+            return self._close_position(pos, pos.current_sl, bar_index, "止損")
+
+        # --- 移動止損至保本 + 啟動追蹤止損 ---
+        risk = pos.signal.risk
+        min_rr = RISK_CONFIG["breakeven_min_rr"]
+
+        if pos.signal.direction == TradeDirection.LONG:
+            # 保本觸發用 close (避免假突破 wick 提前觸發)
+            close_r = (close - pos.entry_price) / risk if risk > 0 else 0
+
+            if not pos.breakeven_moved and close_r >= min_rr:
+                pos.current_sl = pos.entry_price + risk * 0.5  # 保本 + 0.5R 利潤
+                pos.breakeven_moved = True
+
+            # 追蹤止損：保本後，止損跟隨最高點回撤 1R
+            if pos.breakeven_moved:
+                trail_sl = high - risk * 1.0  # 從高點回撤 1R
+                if trail_sl > pos.current_sl:
+                    pos.current_sl = trail_sl
+        else:
+            close_r = (pos.entry_price - close) / risk if risk > 0 else 0
+
+            if not pos.breakeven_moved and close_r >= min_rr:
+                pos.current_sl = pos.entry_price - risk * 0.5
+                pos.breakeven_moved = True
+
+            if pos.breakeven_moved:
+                trail_sl = low + risk * 1.0  # 從低點回撤 1R
+                if trail_sl < pos.current_sl:
+                    pos.current_sl = trail_sl
 
         return None
 

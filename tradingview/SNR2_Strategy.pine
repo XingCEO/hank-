@@ -17,7 +17,7 @@ strategy("SNR 2.0 策略系統", overlay=true, default_qty_type=strategy.percent
 grp_levels = "═══ 水平偵測參數 ═══"
 swingLookback   = input.int(5, "Swing 回看窗口", minval=2, maxval=20, group=grp_levels)
 classicGapRatio  = input.float(0.3, "Classic Gap/ATR 比例", step=0.05, group=grp_levels)
-boBodyRatio      = input.float(1.0, "Breakout 實體/ATR 比例", step=0.1, group=grp_levels)
+boBodyRatio      = input.float(1.2, "Breakout 實體/ATR 比例", step=0.1, group=grp_levels)
 boCleanBars      = input.int(2, "Breakout 乾淨根數", minval=1, maxval=5, group=grp_levels)
 gapMinRatio      = input.float(0.2, "Gap 最小/ATR 比例", step=0.05, group=grp_levels)
 hnsShoulderRatio = input.float(0.3, "HNS 肩頭比例", step=0.05, group=grp_levels)
@@ -28,11 +28,17 @@ maxLevels        = input.int(20, "最大水平數量", minval=5, maxval=50, grou
 // --- EQ / CC ---
 grp_filter = "═══ EQ & CC 過濾 ═══"
 useEQ            = input.bool(true, "啟用 EQ 過濾 (新鮮水平)", group=grp_filter)
-eqFreshRatio     = input.float(0.1, "EQ 新鮮容忍/ATR", step=0.05, group=grp_filter)
+eqFreshRatio     = input.float(0.3, "EQ 新鮮容忍/ATR", step=0.05, group=grp_filter)
 useCC            = input.bool(true, "啟用 CC 過濾 (確認K線)", group=grp_filter)
-ccProximityRatio = input.float(0.5, "CC 接近水平/ATR", step=0.1, group=grp_filter)
-ccMinBodyRatio   = input.float(0.3, "CC 最小實體/ATR", step=0.05, group=grp_filter)
-ccLookback       = input.int(10, "CC 回看根數", minval=3, maxval=20, group=grp_filter)
+ccProximityRatio = input.float(0.8, "CC 接近水平/ATR", step=0.1, group=grp_filter)
+ccMinBodyRatio   = input.float(0.2, "CC 最小實體/ATR", step=0.05, group=grp_filter)
+ccLookback       = input.int(20, "CC 回看根數", minval=3, maxval=30, group=grp_filter)
+
+// --- ADX 趨勢強度 ---
+grp_adx = "═══ ADX 趨勢強度 ═══"
+useADX       = input.bool(true, "啟用 ADX 過濾", group=grp_adx)
+adxPeriod    = input.int(14, "ADX 計算期數", minval=5, maxval=50, group=grp_adx)
+adxMinTrend  = input.int(20, "最低趨勢閾值 (低於不進場)", minval=10, maxval=40, group=grp_adx)
 
 // --- 進場策略 ---
 grp_entry = "═══ 進場策略 ═══"
@@ -47,10 +53,10 @@ mtfPeriod    = input.int(20, "MTF 趨勢計算週期", minval=5, group=grp_mtf)
 // --- 風險管理 ---
 grp_risk = "═══ 風險管理 ═══"
 riskPct        = input.float(1.0, "每筆風險 (%)", step=0.5, group=grp_risk)
-defaultTargetR = input.float(1.0, "預設目標 R", step=0.5, group=grp_risk)
-maxTargetR     = input.float(3.0, "最大目標 R", step=0.5, group=grp_risk)
-beMinRR        = input.float(2.0, "保本移動最低 RR", step=0.5, group=grp_risk)
-slBufferRatio  = input.float(0.1, "止損 Buffer/ATR", step=0.05, group=grp_risk)
+defaultTargetR = input.float(2.0, "預設目標 R", step=0.5, group=grp_risk)
+maxTargetR     = input.float(5.0, "最大目標 R", step=0.5, group=grp_risk)
+beMinRR        = input.float(1.5, "保本移動最低 RR", step=0.5, group=grp_risk)
+slBufferRatio  = input.float(0.3, "止損 Buffer/ATR", step=0.05, group=grp_risk)
 
 // --- 視覺化 ---
 grp_vis = "═══ 視覺化 ═══"
@@ -72,6 +78,28 @@ bodyTop  = math.max(open, close)
 bodyBot  = math.min(open, close)
 isBull   = close > open
 isBear   = close < open
+
+// EMA 趨勢過濾
+ema50  = ta.ema(close, 50)
+ema200 = ta.ema(close, 200)
+emaBull = ema50 > ema200
+emaBear = ema50 < ema200
+
+// ADX 計算 (Wilder's smoothing)
+adxUp = ta.change(high)
+adxDown = -ta.change(low)
+plusDM = na(adxUp) ? 0.0 : (adxUp > adxDown and adxUp > 0 ? adxUp : 0.0)
+minusDM = na(adxDown) ? 0.0 : (adxDown > adxUp and adxDown > 0 ? adxDown : 0.0)
+adxTR = ta.tr(true)
+smoothTR = ta.rma(adxTR, adxPeriod)
+smoothPlusDM = ta.rma(plusDM, adxPeriod)
+smoothMinusDM = ta.rma(minusDM, adxPeriod)
+plusDI = smoothTR != 0 ? 100 * smoothPlusDM / smoothTR : 0.0
+minusDI = smoothTR != 0 ? 100 * smoothMinusDM / smoothTR : 0.0
+diSum = plusDI + minusDI
+adxDX = diSum != 0 ? math.abs(plusDI - minusDI) / diSum * 100 : 0.0
+adxVal_calc = ta.rma(adxDX, adxPeriod)
+adxTrendOK = not useADX or adxVal_calc >= adxMinTrend
 
 // ============================================================
 // 1. SWING HIGH / LOW 偵測
@@ -268,13 +296,15 @@ if array.size(levels) > 0
         lv = array.get(levels, i)
         dist = math.abs(close - lv.price)
         if lv.side == 1
-            if close < lv.price - atrVal * 0.5
+            if close < lv.price - atrVal * 0.3
                 lv.broken := true
         else
-            if close > lv.price + atrVal * 0.5
+            if close > lv.price + atrVal * 0.3
                 lv.broken := true
         if not lv.tested and dist < atrVal * eqFreshRatio
-            lv.tested := true
+            age = bar_index - lv.barIdx
+            if age > 5
+                lv.tested := true
 
 // 清理過舊或已突破的水平
 if array.size(levels) > 0
@@ -366,7 +396,7 @@ signalSL    = 0.0
 signalTP    = 0.0
 signalType  = ""
 
-if not inTrade and array.size(levels) > 0
+if not inTrade and array.size(levels) > 0 and adxTrendOK
     for i = 0 to array.size(levels) - 1
         lv = array.get(levels, i)
 
@@ -386,17 +416,23 @@ if not inTrade and array.size(levels) > 0
         if lv.side == 1 and low <= lv.price + proximity
             if useMTF and mtfBias == -1
                 continue
+            // EMA 趨勢過濾: 多頭趨勢不做空, 空頭趨勢不做多
+            if emaBear
+                continue
 
             if entryMode == "DC" or entryMode == "Both"
                 if isBull and close > lv.price and low <= lv.price + proximity
                     if hasCC or not useCC
-                        longSignal  := true
-                        signalPrice := close
-                        signalSL    := lv.price - slBuffer
-                        risk        = signalPrice - signalSL
-                        signalTP    := signalPrice + risk * defaultTargetR
-                        signalType  := "DC Long"
-                        break
+                        // SL 放在進場 K 線 low 下方 (而非水平價)
+                        dcSL = low - slBuffer
+                        dcRisk = close - dcSL
+                        if dcRisk >= atrVal * 0.1 and dcRisk <= atrVal * 1.5
+                            longSignal  := true
+                            signalPrice := close
+                            signalSL    := dcSL
+                            signalTP    := close + dcRisk * defaultTargetR
+                            signalType  := "DC Long"
+                            break
 
             if entryMode == "DE" or entryMode == "Both"
                 if lv.strength >= 0.8 and low <= lv.price + atrVal * 0.1
@@ -412,17 +448,21 @@ if not inTrade and array.size(levels) > 0
         if lv.side == -1 and high >= lv.price - proximity
             if useMTF and mtfBias == 1
                 continue
+            if emaBull
+                continue
 
             if entryMode == "DC" or entryMode == "Both"
                 if isBear and close < lv.price and high >= lv.price - proximity
                     if hasCC or not useCC
-                        shortSignal := true
-                        signalPrice := close
-                        signalSL    := lv.price + slBuffer
-                        risk        = signalSL - signalPrice
-                        signalTP    := signalPrice - risk * defaultTargetR
-                        signalType  := "DC Short"
-                        break
+                        dcSL = high + slBuffer
+                        dcRisk = dcSL - close
+                        if dcRisk >= atrVal * 0.1 and dcRisk <= atrVal * 1.5
+                            shortSignal := true
+                            signalPrice := close
+                            signalSL    := dcSL
+                            signalTP    := close - dcRisk * defaultTargetR
+                            signalType  := "DC Short"
+                            break
 
             if entryMode == "DE" or entryMode == "Both"
                 if lv.strength >= 0.8 and high >= lv.price - atrVal * 0.1
@@ -450,31 +490,42 @@ if shortSignal and not inTrade
     entryTP  := signalTP
     inTrade  := true
 
+var bool beTriggered = false
+
 if inTrade
     if strategy.position_size > 0
-        strategy.exit("Exit Long", "Long", stop=entrySL, limit=entryTP)
         entryPrice = strategy.position_avg_price
         risk = entryPrice - entrySL
         if risk > 0
-            currentProfit = close - entryPrice
-            if currentProfit >= risk * beMinRR
-                entrySL  := entryPrice
-                entryTP  := entryPrice + risk * maxTargetR
-                strategy.exit("Exit Long BE", "Long", stop=entrySL, limit=entryTP)
+            // 保本觸發 (用 close 判斷)
+            closeR = (close - entryPrice) / risk
+            if not beTriggered and closeR >= beMinRR
+                entrySL := entryPrice + risk * 0.5
+                beTriggered := true
+            // 追蹤止損: 保本後從高點回撤 1R
+            if beTriggered
+                trailSL = high - risk * 1.0
+                if trailSL > entrySL
+                    entrySL := trailSL
+        strategy.exit("Exit Long", "Long", stop=entrySL, limit=entryTP)
 
     if strategy.position_size < 0
-        strategy.exit("Exit Short", "Short", stop=entrySL, limit=entryTP)
         entryPrice = strategy.position_avg_price
         risk = entrySL - entryPrice
         if risk > 0
-            currentProfit = entryPrice - close
-            if currentProfit >= risk * beMinRR
-                entrySL  := entryPrice
-                entryTP  := entryPrice - risk * maxTargetR
-                strategy.exit("Exit Short BE", "Short", stop=entrySL, limit=entryTP)
+            closeR = (entryPrice - close) / risk
+            if not beTriggered and closeR >= beMinRR
+                entrySL := entryPrice - risk * 0.5
+                beTriggered := true
+            if beTriggered
+                trailSL = low + risk * 1.0
+                if trailSL < entrySL
+                    entrySL := trailSL
+        strategy.exit("Exit Short", "Short", stop=entrySL, limit=entryTP)
 
 if strategy.position_size == 0
     inTrade := false
+    beTriggered := false
 
 // ============================================================
 // 9. 視覺化繪圖
@@ -533,13 +584,15 @@ plotshape(showSignals and shortSignal, "Short Signal", shape.triangledown, locat
 plot(inTrade and strategy.position_size != 0 ? entrySL : na, "Stop Loss", color.new(color.red, 40), 1, plot.style_linebr)
 plot(inTrade and strategy.position_size != 0 ? entryTP : na, "Take Profit", color.new(color.green, 40), 1, plot.style_linebr)
 
+plot(ema50, "EMA 50", color=color.new(#2196f3, 40), linewidth=1)
+plot(ema200, "EMA 200", color=color.new(#ff9800, 40), linewidth=1)
 bgcolor(useMTF and mtfBias == 1 ? color.new(color.green, 95) : useMTF and mtfBias == -1 ? color.new(color.red, 95) : na, title="MTF 方向背景")
 
 // ============================================================
 // 10. 資訊面板
 // ============================================================
 
-var table infoPanel = table.new(position.top_right, 2, 8, bgcolor=color.new(#1a1a2e, 10), border_color=color.new(color.gray, 50), border_width=1)
+var table infoPanel = table.new(position.top_right, 2, 9, bgcolor=color.new(#1a1a2e, 10), border_color=color.new(color.gray, 50), border_width=1)
 if barstate.islast
     table.cell(infoPanel, 0, 0, "SNR 2.0", text_color=color.white, text_size=size.normal)
     table.cell(infoPanel, 1, 0, "策略面板", text_color=color.gray, text_size=size.small)
@@ -573,3 +626,8 @@ if barstate.islast
 
     table.cell(infoPanel, 0, 7, "CC", text_color=color.gray, text_size=size.small)
     table.cell(infoPanel, 1, 7, useCC ? "ON" : "OFF", text_color=useCC ? color.green : color.red, text_size=size.small)
+
+    table.cell(infoPanel, 0, 8, "ADX", text_color=color.gray, text_size=size.small)
+    adxStr = useADX ? str.tostring(math.round(adxVal_calc, 1)) : "OFF"
+    adxCol = not useADX ? color.gray : adxVal_calc >= adxMinTrend ? color.green : color.red
+    table.cell(infoPanel, 1, 8, adxStr, text_color=adxCol, text_size=size.small)
